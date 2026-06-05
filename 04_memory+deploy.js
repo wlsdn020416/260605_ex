@@ -4,6 +4,7 @@ dotenv.config();
 
 // 의존성
 const express = require("express");
+const cors = require("cors");
 // Provider
 const { ChatGoogleGenerativeAI } = require("@langchain/google-genai");
 const { ChatGroq } = require("@langchain/groq");
@@ -13,16 +14,20 @@ const { PromptTemplate } = require("@langchain/core/prompts");
 const { HumanMessage, SystemMessage } = require("@langchain/core/messages");
 
 // 서버 구동
-const PORT = process.env.PORT_03 ?? 3000;
+const PORT = process.env.PORT_04 ?? process.env.PORT ?? 3000;
 const app = express();
 
 // 미들웨어
 app.use(express.json());
+// npm i cors
+// https://www.npmjs.com/package/cors
+app.use(cors()); // whitelist -> 어제 실습.
+// 보안적으로는 최악의 선택 중 하나임을 일단은 명심.
 
 // 엔드포인트
 app.post("/chat", async (req, res) => {
   console.log("[요청 해석]");
-  const { provider, modelName, review } = req.body;
+  const { provider, modelName, ask, history } = req.body;
   let model;
   switch (provider) {
     case "google-genai":
@@ -40,58 +45,37 @@ app.post("/chat", async (req, res) => {
 
   console.log("[프롬프트 포맷팅]");
 
-  const schema = {
-    type: "object",
-    propeties: {
-      sentiment: {
-        type: "string",
-        enum: ["positive", "negative", "neutral"],
-        description: "리뷰의 긍정, 부정, 중립 감정 분석 결과",
-      },
-      summary: {
-        type: "string",
-        description: "리뷰를 요약한 한국어 텍스트",
-      },
-    },
-  };
-
-  //   const promptTemplate = PromptTemplate.fromTemplate(
-  //     "다음 고객 리뷰를 객관적으로 분석 : {review}, 뒤의 형식으로 구현, 마크다운 등으로 감싸지 말고 결과만 작성 : {schema}",
-  //   );
   const promptTemplate = PromptTemplate.fromTemplate(
-    "다음 고객 리뷰를 객관적으로 분석 : {review}",
+    "다음의 요청에 대해 친절하고 간결하게 응답 : {ask}",
   );
   const formattedPrompt = await promptTemplate.format({
-    review,
-    // schema,
+    ask,
   });
 
   console.log("[모델 호출]");
 
   // System Instruction
+  const mbti = "INTJ";
   const systemPromptTemplate = PromptTemplate.fromTemplate(
-    "뒤의 형식으로 구현, 마크다운 등으로 감싸지 말고 결과만 작성. properties의 구성으로 json을 만들 것. : {schema}",
+    "뒤의 성격을 의식하여 대답 : {mbti}",
   );
   const systemformattedPrompt = await systemPromptTemplate.format({
-    schema,
+    mbti,
   });
 
   const response = await model.invoke([
-    // new SystemMessage("대답은 질문과 상관없이 일본어를 사용함."),
     new SystemMessage(systemformattedPrompt),
-    new SystemMessage("요약문의 경우에는 맨끝에 '냥'을 붙일 것."),
     new HumanMessage(formattedPrompt),
   ]);
 
   console.log("[결과 정리]");
 
   //   console.log(response.text);
-  console.log(response.text);
 
   console.log("[응답 전송]");
 
   res.json({
-    analysis: JSON.parse(response.text),
+    answer: response.text,
   });
 });
 
@@ -104,10 +88,10 @@ async function useGoogleGenAI(model) {
   return new ChatGoogleGenerativeAI({
     apiKey: process.env.GEMINI_API_KEY,
     model,
-    // temperature: 0.7,
-    temperature: 0, // 고정된 응답의 형식을 바란다면 창의성/임의성을 의미하는 temperature는 최소로 (0)
-    // maxOutputTokens: 512,
-    json: true,
+    temperature: 0.7,
+    // temperature: 0, // 고정된 응답의 형식을 바란다면 창의성/임의성을 의미하는 temperature는 최소로 (0)
+    maxOutputTokens: 512,
+    // json: true,
   });
 }
 
@@ -120,8 +104,9 @@ async function useGroq(model) {
   return new ChatGroq({
     apiKey: process.env.GROQ_API_KEY,
     model,
-    temperature: 0,
-    // maxOutputTokens: 512,
+    // temperature: 0,
+    temperature: 0.7,
+    maxOutputTokens: 512,
   });
 }
 
@@ -136,8 +121,9 @@ async function useNim(model) {
       baseURL: "https://integrate.api.nvidia.com/v1",
     },
     model,
-    temperature: 0,
-    // maxOutputTokens: 512,
+    // temperature: 0,
+    temperature: 0.7,
+    maxOutputTokens: 512,
   });
 }
 
